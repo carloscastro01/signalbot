@@ -164,10 +164,12 @@ async def show_crypto(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "back_to_types")
 async def back_to_types(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.answer(
+
+    await callback.message.edit_text(
         "Elige el tipo de activo:",
         reply_markup=get_type_keyboard()
     )
+
     await state.set_state(Form.waiting_for_type)
 
 @dp.callback_query(F.data.startswith("pair:"))
