@@ -2,8 +2,14 @@ import asyncio
 import random
 import sqlite3
 from datetime import datetime, timedelta
+
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    Message,
+    CallbackQuery
+)
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -22,43 +28,32 @@ dp = Dispatcher(storage=MemoryStorage())
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
-
-    # создаём таблицу если её нет
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             pair TEXT
         )
     """)
-
     conn.commit()
     conn.close()
 
 def save_pair(user_id: int, pair: str):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT OR REPLACE INTO users (user_id, pair) VALUES (?, ?)",
-        (user_id, pair)
-    )
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO users (user_id, pair) VALUES (?, ?)",
+            (user_id, pair)
+        )
 
 def get_pair(user_id: int):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("SELECT pair FROM users WHERE user_id = ?", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row else None
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.execute("SELECT pair FROM users WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
 
 def get_all_users():
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users")
-    rows = cur.fetchall()
-    conn.close()
-    return [r[0] for r in rows]
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.execute("SELECT user_id FROM users")
+        return [r[0] for r in cur.fetchall()]
 
 # ================= FSM =================
 class Form(StatesGroup):
@@ -69,8 +64,8 @@ class Form(StatesGroup):
 
 # ================= DATA =================
 otc_pairs = [
-    "EUR/USD OTC", "USD/CHF OTC", "AUD/USD OTC", "Gold OTC",
-    "AUD/CAD OTC", "AUD/JPY OTC", "CAD/JPY OTC"
+    "EUR/USD OTC", "USD/CHF OTC", "AUD/USD OTC",
+    "Gold OTC", "AUD/CAD OTC", "AUD/JPY OTC", "CAD/JPY OTC"
 ]
 
 real_pairs = [
@@ -78,19 +73,10 @@ real_pairs = [
 ]
 
 cryptomonedas = [
-    "BNB OTC",
-    "Litecoin OTC",
-    "Polygon OTC",
-    "Ethereum OTC",
-    "Bitcoin ETF OTC",
-    "Dogecoin OTC",
-    "Polkadot OTC",
-    "Toncoin OTC",
-    "Bitcoin OTC",
-    "Avalanche OTC",
-    "Chainlink OTC",
-    "TRON OTC",
-    "Cardano OTC"
+    "Bitcoin OTC", "Ethereum OTC", "BNB OTC", "Litecoin OTC",
+    "Dogecoin OTC", "Polygon OTC", "Toncoin OTC",
+    "Polkadot OTC", "Avalanche OTC", "Chainlink OTC",
+    "TRON OTC", "Cardano OTC"
 ]
 
 all_pairs = otc_pairs + real_pairs + cryptomonedas
@@ -102,22 +88,24 @@ directions = ["📈 Arriba", "📉 Abajo"]
 user_cooldowns = {}
 
 # ================= KEYBOARDS =================
-def get_type_keyboard():
+def kb_types():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🕹 Pares OTC", callback_data="type_otc")],
         [InlineKeyboardButton(text="📈 Pares reales", callback_data="type_real")],
         [InlineKeyboardButton(text="🪙 Criptomonedas", callback_data="type_crypto")]
     ])
 
-def get_pairs_keyboard(pairs):
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=p, callback_data=f"pair:{p}")]
-            for p in pairs
-        ] + [[InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")]]
-    )
+def kb_pairs(pairs):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        *[[InlineKeyboardButton(text=p, callback_data=f"pair:{p}")]] for p in pairs
+    ] + [[InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")]])
 
-def get_signal_keyboard():
+def kb_signal_only():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📩 OBTENER SEÑAL", callback_data="get_signal")]
+    ])
+
+def kb_after_pair():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📩 OBTENER SEÑAL", callback_data="get_signal")],
         [InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")]
@@ -130,140 +118,82 @@ async def start(message: Message, state: FSMContext):
     await state.set_state(Form.waiting_for_id)
 
 @dp.message(Form.waiting_for_id)
-async def process_id(message: Message, state: FSMContext):
-    await message.answer(
-        "✅ ID recibido. Elige el tipo de activo:",
-        reply_markup=get_type_keyboard()
-    )
+async def get_id(message: Message, state: FSMContext):
+    await message.answer("✅ ID recibido. Elige el tipo de activo:", reply_markup=kb_types())
     await state.set_state(Form.waiting_for_type)
 
 @dp.callback_query(F.data == "type_otc")
-async def show_otc(callback: CallbackQuery, state: FSMContext):
+async def type_otc(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.answer(
-        "Selecciona un par OTC:",
-        reply_markup=get_pairs_keyboard(otc_pairs)
-    )
+    await callback.message.edit_text("Selecciona un par OTC:", reply_markup=kb_pairs(otc_pairs))
     await state.set_state(Form.waiting_for_pair)
 
 @dp.callback_query(F.data == "type_real")
-async def show_real(callback: CallbackQuery, state: FSMContext):
+async def type_real(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.answer(
-        "Selecciona un par real:",
-        reply_markup=get_pairs_keyboard(real_pairs)
-    )
+    await callback.message.edit_text("Selecciona un par real:", reply_markup=kb_pairs(real_pairs))
     await state.set_state(Form.waiting_for_pair)
 
 @dp.callback_query(F.data == "type_crypto")
-async def show_crypto(callback: CallbackQuery, state: FSMContext):
+async def type_crypto(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.answer(
-        "Selecciona una criptomoneda:",
-        reply_markup=get_pairs_keyboard(cryptomonedas)
-    )
+    await callback.message.edit_text("Selecciona una criptomoneda:", reply_markup=kb_pairs(cryptomonedas))
     await state.set_state(Form.waiting_for_pair)
 
 @dp.callback_query(F.data == "back_to_types")
-async def back_to_types(callback: CallbackQuery, state: FSMContext):
+async def back(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-
-    await callback.message.edit_text(
-        "Elige el tipo de activo:",
-        reply_markup=get_type_keyboard()
-    )
-
+    await callback.message.edit_text("Elige el tipo de activo:", reply_markup=kb_types())
     await state.set_state(Form.waiting_for_type)
 
 @dp.callback_query(F.data.startswith("pair:"))
 async def select_pair(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-
     pair = callback.data.split(":", 1)[1]
-    user_id = callback.from_user.id
+    save_pair(callback.from_user.id, pair)
 
-    save_pair(user_id, pair)
-
-    await callback.message.answer(
+    await callback.message.edit_text(
         f"✅ Par seleccionado: *{pair}*\nPulsa para recibir la señal 👇",
-        reply_markup=get_signal_keyboard()
+        reply_markup=kb_after_pair()
     )
     await state.set_state(Form.ready_for_signals)
 
 @dp.callback_query(F.data == "get_signal")
 async def send_signal(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-
     user_id = callback.from_user.id
-    pair = get_pair(user_id)
-
-    if not pair:
-        await callback.message.answer("⚠️ Primero selecciona un par.")
-        return
-
     now = datetime.now()
     cooldown = user_cooldowns.get(user_id)
 
     if cooldown and cooldown > now:
         remaining = int((cooldown - now).total_seconds())
         await callback.answer(
-            f"⏳ Espera {remaining // 60}m {remaining % 60}s",
+            f"⏳ Próxima señal en {remaining//60}m {remaining%60}s",
             show_alert=True
         )
         return
 
+    await callback.answer()
     user_cooldowns[user_id] = now + timedelta(minutes=5)
 
+    pair = get_pair(user_id)
+
     loading = await callback.message.answer("⏳ Preparando señal...")
-    await asyncio.sleep(3)
+    await asyncio.sleep(2)
     await loading.delete()
 
-    signal = (
+    text = (
         f"Par: *{pair}*\n"
         f"Tiempo: *{random.choice(timeframes)}*\n"
         f"Presupuesto: *{random.choice(budget_options)}*\n"
         f"Dirección: *{random.choice(directions)}*"
     )
 
-    await callback.message.answer(signal, reply_markup=get_signal_keyboard())
-    await state.set_state(Form.ready_for_signals)
-
-# ================= AUTO SIGNALS =================
-async def scheduled_signals():
-    while True:
-        now = datetime.utcnow() + timedelta(hours=5)
-        hour = now.hour
-
-        if 19 <= hour or hour < 4:
-            interval = 3
-        elif 4 <= hour < 10:
-            interval = 1
-        else:
-            next_run = now.replace(hour=19, minute=0, second=0, microsecond=0)
-            await asyncio.sleep((next_run - now).total_seconds())
-            continue
-
-        text = (
-            f"📊 *SEÑAL AUTOMÁTICA*\n\n"
-            f"Par: *{random.choice(all_pairs)}*\n"
-            f"Tiempo: *{random.choice(timeframes)}*\n"
-            f"Presupuesto: *{random.choice(budget_options)}*\n"
-            f"Dirección: *{random.choice(directions)}*"
-        )
-
-        for uid in get_all_users():
-            try:
-                await bot.send_message(uid, text, reply_markup=get_signal_keyboard())
-            except:
-                pass
-
-        await asyncio.sleep(interval * 3600)
+    await callback.message.answer(text, reply_markup=kb_signal_only())
 
 # ================= MAIN =================
 async def main():
     logging.basicConfig(level=logging.INFO)
     init_db()
-    asyncio.create_task(scheduled_signals())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
