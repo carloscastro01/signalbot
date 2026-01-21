@@ -12,7 +12,7 @@ from aiogram.client.default import DefaultBotProperties
 import logging
 
 # ================= CONFIG =================
-TOKEN = "PASTE_YOUR_TOKEN_HERE"
+TOKEN = "8535869380:AAHCUGD-I0rXeMbj7VUr22kcuN2c6xSMQAA"
 DB_FILE = "users.db"
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
