@@ -22,12 +22,15 @@ dp = Dispatcher(storage=MemoryStorage())
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
+
+    # создаём таблицу если её нет
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             pair TEXT
         )
     """)
+
     conn.commit()
     conn.close()
 
