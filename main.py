@@ -134,19 +134,19 @@ async def get_id(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "type_otc")
 async def type_otc(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.edit_text("Selecciona un par OTC:", reply_markup=kb_pairs(otc_pairs))
+    await callback.message.answer("Selecciona un par OTC:", reply_markup=kb_pairs(otc_pairs))
     await state.set_state(Form.waiting_for_pair)
 
 @dp.callback_query(F.data == "type_real")
 async def type_real(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.edit_text("Selecciona un par real:", reply_markup=kb_pairs(real_pairs))
+    await callback.message.answer("Selecciona un par real:", reply_markup=kb_pairs(real_pairs))
     await state.set_state(Form.waiting_for_pair)
 
 @dp.callback_query(F.data == "type_crypto")
 async def type_crypto(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.edit_text("Selecciona una criptomoneda:", reply_markup=kb_pairs(cryptomonedas))
+    await callback.message.answer("Selecciona una criptomoneda:", reply_markup=kb_pairs(cryptomonedas))
     await state.set_state(Form.waiting_for_pair)
 
 @dp.callback_query(F.data == "back_to_types")
