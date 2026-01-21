@@ -92,7 +92,7 @@ def kb_types():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🕹 Pares OTC", callback_data="type_otc")],
         [InlineKeyboardButton(text="📈 Pares reales", callback_data="type_real")],
-        [InlineKeyboardButton(text="🪙 Criptomonedas", callback_data="type_crypto")]
+        [InlineKeyboardButton(text="🪙 Cryptomonedas", callback_data="type_crypto")]
     ])
 
 def kb_pairs(pairs):
