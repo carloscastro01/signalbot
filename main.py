@@ -96,9 +96,18 @@ def kb_types():
     ])
 
 def kb_pairs(pairs):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        *[[InlineKeyboardButton(text=p, callback_data=f"pair:{p}")]] for p in pairs
-    ] + [[InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")]])
+    keyboard = []
+
+    for p in pairs:
+        keyboard.append(
+            [InlineKeyboardButton(text=p, callback_data=f"pair:{p}")]
+        )
+
+    keyboard.append(
+        [InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def kb_signal_only():
     return InlineKeyboardMarkup(inline_keyboard=[
