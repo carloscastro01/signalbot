@@ -12,7 +12,7 @@ from aiogram import F
 from aiogram.client.default import DefaultBotProperties
 import logging
 
-TOKEN = "8290197550:AAEXSyA1LsQuBnu2tvIp6w1N4CJgNGzFKGU"
+TOKEN = "8535869380:AAHCUGD-I0rXeMbj7VUr22kcuN2c6xSMQAA"
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher(storage=MemoryStorage())
