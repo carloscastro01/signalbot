@@ -47,6 +47,14 @@ def get_pair(user_id: int):
     conn.close()
     return row[0] if row else None
 
+def get_all_users():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users")
+    rows = cur.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
 # ================= FSM =================
 class Form(StatesGroup):
     waiting_for_id = State()
@@ -63,64 +71,77 @@ otc_pairs = [
 real_pairs = [
     "EUR/USD", "AUD/USD", "Gold", "AUD/CAD", "AUD/JPY", "CAD/JPY"
 ]
-index_pairs = [
-    "Compound Index", "Asia Composite Index", "Crypto Composite Index"
+cryptomonedas = [
+    "BNB OTC",
+    "Litecoin OTC",
+    "Polygon OTC",
+    "Ethereum OTC",
+    "Bitcoin ETF OTC",
+    "Dogecoin OTC",
+    "Polkadot OTC",
+    "Toncoin OTC",
+    "Bitcoin OTC",
+    "Avalanche OTC",
+    "Chainlink OTC",
+    "TRON OTC",
+    "Cardano OTC"
 ]
 
-all_pairs = otc_pairs + real_pairs + index_pairs
 
-timeframes = ["10 минут"] * 5 + ["20 минут"] * 3 + ["30 минут"] * 2 + ["50 минут"]
+all_pairs = otc_pairs + real_pairs + cryptomonedas
+
+timeframes = ["10 minutos"] * 5 + ["20 minutos"] * 3 + ["30 minutos"] * 2 + ["50 minutos"]
 budget_options = ["20$", "30$", "40$"]
-directions = ["📈 Вверх", "📉 Вниз"]
+directions = ["📈 Arriba", "📉 Abajo"]
 
 user_cooldowns = {}
 
 # ================= KEYBOARDS =================
 def get_type_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🕹 Пары OTC", callback_data="type_otc")],
-        [InlineKeyboardButton(text="📈 Реальные пары", callback_data="type_real")],
-        [InlineKeyboardButton(text="📊 Индикаторы", callback_data="type_index")]
+        [InlineKeyboardButton(text="🕹 Pares OTC", callback_data="type_otc")],
+        [InlineKeyboardButton(text="📈 Pares reales", callback_data="type_real")],
+        [InlineKeyboardButton(text="🪙 Cryptomonedas", callback_data="type_crypto")]
     ])
 
 def get_pairs_keyboard(pairs):
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=p, callback_data=f"pair:{p}")] for p in pairs] +
-                        [[InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_types")]]
+                        [[InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")]]
     )
 
 # ================= HANDLERS =================
 @dp.message(F.text == "/start")
 async def start(message: Message, state: FSMContext):
-    await message.answer("👋 Привет! Пожалуйста, пришли мне свой ID аккаунта.")
+    await message.answer("👋 ¡Hola! Por favor envíame tu ID de cuenta.")
     await state.set_state(Form.waiting_for_id)
 
 @dp.message(Form.waiting_for_id)
 async def process_id(message: Message, state: FSMContext):
     await message.answer(
-        "✅ Идентификатор принят. Теперь выберите тип валютной пары:", 
+        "✅ ID recibido. Ahora elige el tipo de par:", 
         reply_markup=get_type_keyboard()
     )
     await state.set_state(Form.waiting_for_type)
 
 @dp.callback_query(F.data == "type_otc")
 async def show_otc_pairs(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Выберите валютную пару OTC:", reply_markup=get_pairs_keyboard(otc_pairs))
+    await callback.message.answer("Selecciona un par OTC:", reply_markup=get_pairs_keyboard(otc_pairs))
     await state.set_state(Form.waiting_for_pair)
 
 @dp.callback_query(F.data == "type_real")
 async def show_real_pairs(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Выберите реальную валютную пару:", reply_markup=get_pairs_keyboard(real_pairs))
+    await callback.message.answer("Selecciona un par real:", reply_markup=get_pairs_keyboard(real_pairs))
     await state.set_state(Form.waiting_for_pair)
 
-@dp.callback_query(F.data == "type_index")
-async def show_index_pairs(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Выберите индекс:", reply_markup=get_pairs_keyboard(index_pairs))
+@dp.callback_query(F.data == "type_crypto")
+async def show_crypto_pairs(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer( "Selecciona una criptomoneda:", reply_markup=get_pairs_keyboard(cryptomonedas))
     await state.set_state(Form.waiting_for_pair)
 
 @dp.callback_query(F.data == "back_to_types")
 async def back_to_type_selection(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Выберите тип валютных пар:", reply_markup=get_type_keyboard())
+    await callback.message.answer("Elige el tipo de par:", reply_markup=get_type_keyboard())
     await state.set_state(Form.waiting_for_type)
 
 @dp.callback_query(F.data.startswith("pair:"))
@@ -129,43 +150,41 @@ async def select_pair(callback: CallbackQuery, state: FSMContext):
     uid = callback.from_user.id
 
     save_pair(uid, pair)
-    logging.info(f"✅ User {uid} выбрал пару {pair}")  
+    logging.info(f"✅ Usuario {uid} eligió {pair}")  
 
     btn = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📩 ПОЛУЧИТЬ СИГНАЛ", callback_data="get_signal")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_types")]
+            [InlineKeyboardButton(text="📩 OBTENER SEÑAL", callback_data="get_signal")],
+            [InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")]
         ]
     )
-    await callback.message.answer(f"Отличная пара: {pair}\nГотов к отправке сигнала. 👇", reply_markup=btn)
+    await callback.message.answer(f"Excelente par: *{pair}*\nListo para enviar la señal 👇", reply_markup=btn)
     await state.set_state(Form.ready_for_signals)
-
 
 @dp.callback_query(F.data == "get_signal")
 async def send_signal(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    logging.info(f"👉 SIGNAL запрос от {user_id}")
-
     pair = get_pair(user_id)
-    logging.info(f"🔍 Пара из базы для {user_id}: {pair}")
 
     if not pair:
-        await callback.message.answer("⚠️ Сначала выберите пару валют!")
+        await callback.message.answer("⚠️ Primero selecciona un par.")
         return
 
-    # cooldown check
     now = datetime.now()
     cooldown_until = user_cooldowns.get(user_id)
     if cooldown_until and (cooldown_until - now).total_seconds() > 0:
         remaining = (cooldown_until - now).total_seconds()
         minutes = int(remaining) // 60
         seconds = int(remaining) % 60
-        await callback.answer(f"⏳ Подожди {minutes}минут {seconds}секунд до следующего сигнала", show_alert=True)
+        await callback.answer(
+            f"⏳ Espera {minutes} min {seconds} seg para la próxima señal",
+            show_alert=True
+        )
         return
 
     user_cooldowns[user_id] = now + timedelta(minutes=5)
 
-    msg = await callback.message.answer("⏳ Подготовка сигнала...")
+    msg = await callback.message.answer("⏳ Preparando señal...")
     await asyncio.sleep(5)
     await msg.delete()
 
@@ -174,74 +193,65 @@ async def send_signal(callback: CallbackQuery, state: FSMContext):
     direction = random.choice(directions)
 
     signal_text = (
-        f"Пара: *{pair}*\n"
-        f"Время сделки: *{tf}*\n"
-        f"Бюджет: *{budget}*\n"
-        f"Направление: *{direction}*"
+        f"Par: *{pair}*\n"
+        f"Tiempo de operación: *{tf}*\n"
+        f"Presupuesto: *{budget}*\n"
+        f"Dirección: *{direction}*"
     )
 
     btn = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📩 ПОЛУЧИТЬ СИГНАЛ", callback_data="get_signal")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_types")]
+            [InlineKeyboardButton(text="📩 OBTENER SEÑAL", callback_data="get_signal")],
+            [InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")]
         ]
     )
     await callback.message.answer(signal_text, reply_markup=btn)
-    await state.set_state(Form.ready_for_signals)  # 👈 остаёмся в этом стейте
+    await state.set_state(Form.ready_for_signals)
 
 # ================= AUTO SIGNALS =================
 async def scheduled_signals():
     while True:
-        now = datetime.utcnow() + timedelta(hours=5)  # локальное время UTC+5
+        now = datetime.utcnow() + timedelta(hours=5)
         hour = now.hour
 
-        # с 19:00 до 04:00 → раз в 3 часа
         if 19 <= hour or hour < 4:
             interval = 3
-        # с 04:00 до 10:00 → раз в час
         elif 4 <= hour < 10:
             interval = 1
         else:
-            # с 10:00 до 19:00 → пауза до 19:00
             next_time = now.replace(hour=19, minute=0, second=0, microsecond=0)
             if next_time < now:
                 next_time += timedelta(days=1)
-            sleep_seconds = (next_time - now).total_seconds()
-            await asyncio.sleep(sleep_seconds)
+            await asyncio.sleep((next_time - now).total_seconds())
             continue
 
-        # формируем сигнал
         pair = random.choice(all_pairs)
         tf = random.choice(timeframes)
         budget = random.choice(budget_options)
         direction = random.choice(directions)
 
         text = (
-            f"Пара: *{pair}*\n"
-            f"Время сделки: *{tf}*\n"
-            f"Бюджет: *{budget}*\n"
-            f"Направление: *{direction}*"
+            f"Par: *{pair}*\n"
+            f"Tiempo de operación: *{tf}*\n"
+            f"Presupuesto: *{budget}*\n"
+            f"Dirección: *{direction}*"
         )
 
         btn = InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(
-                text="📩 ПОЛУЧИТЬ СИГНАЛ",
+                text="📩 OBTENER SEÑAL",
                 callback_data="get_signal"
             )]]
         )
 
-        # рассылаем всем юзерам из базы
         for uid in get_all_users():
             try:
                 await bot.send_message(uid, text, reply_markup=btn)
             except Exception as e:
-                logging.warning(f"❌ Не удалось отправить {uid}: {e}")
+                logging.warning(f"❌ No se pudo enviar a {uid}: {e}")
 
-        # ждём до следующего интервала
         next_time = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=interval)
-        sleep_seconds = (next_time - (datetime.utcnow() + timedelta(hours=5))).total_seconds()
-        if sleep_seconds > 0:
-            await asyncio.sleep(sleep_seconds)
+        await asyncio.sleep((next_time - (datetime.utcnow() + timedelta(hours=5))).total_seconds())
 
 # ================= MAIN =================
 async def main():
