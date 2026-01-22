@@ -124,42 +124,50 @@ async def check_code(message: Message, state: FSMContext):
     user_id = message.from_user.id
     now = datetime.now()
 
+    # ⛔ если уже в бане
     ban_until = login_bans.get(user_id)
     if ban_until and ban_until > now:
         remaining = int((ban_until - now).total_seconds())
         await message.answer(
             f"⛔ *Acceso bloqueado*\n\n"
-            f"Intenta de nuevo en {remaining//60}m {remaining%60}s\n\n"
+            f"Intenta nuevamente en {remaining//60}m {remaining%60}s\n\n"
             f"Soporte 👉 @carlos_gananciasbot"
         )
         return
 
+    # если бан истёк — сбрасываем
     if ban_until and ban_until <= now:
         login_bans.pop(user_id, None)
         login_attempts.pop(user_id, None)
 
+    # ✅ правильный код
     if message.text.strip() == ACCESS_CODE:
         login_attempts.pop(user_id, None)
-        await message.answer("✅ *Acceso concedido*\n\nElige el tipo de activo:", reply_markup=kb_types())
+        await message.answer(
+            "✅ *Acceso concedido*\n\nElige el tipo de activo:",
+            reply_markup=kb_types()
+        )
         await state.set_state(Form.waiting_for_type)
         return
 
+    # ❌ неправильный код
     attempts = login_attempts.get(user_id, 0) + 1
     login_attempts[user_id] = attempts
-    remaining_attempts = MAX_ATTEMPTS - attempts
 
-    if remaining_attempts > 0:
-        await message.answer(
-            f"❌ *Código incorrecto*\n\n"
-            f"Intentos restantes: *{remaining_attempts}*\n\n"
-            f"Soporte 👉 @carlos_gananciasbot"
-        )
-    else:
+    # сообщение после КАЖДОЙ ошибки
+    await message.answer(
+        "❌ *Código incorrecto*\n\n"
+        "Soporte 👉 @carlos_gananciasbot"
+    )
+
+    # если это 3-я попытка — бан
+    if attempts >= MAX_ATTEMPTS:
         login_bans[user_id] = now + BAN_TIME
         login_attempts.pop(user_id, None)
+
         await message.answer(
-            "⛔ *Demasiados intentos*\n\n"
-            "Acceso bloqueado por *5 minutos*\n\n"
+            "⛔ *Has ingresado el código incorrecto 3 veces*\n\n"
+            "Las próximas tentativas estarán disponibles en *5 minutos*.\n\n"
             "Soporte 👉 @carlos_gananciasbot"
         )
 
@@ -180,12 +188,6 @@ async def type_crypto(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.answer("Selecciona una criptomoneda:", reply_markup=kb_pairs(cryptomonedas))
     await state.set_state(Form.waiting_for_pair)
-
-@dp.callback_query(F.data == "back_to_types")
-async def back(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await callback.message.edit_text("Elige el tipo de activo:", reply_markup=kb_types())
-    await state.set_state(Form.waiting_for_type)
 
 @dp.callback_query(F.data.startswith("pair:"))
 async def select_pair(callback: CallbackQuery, state: FSMContext):
@@ -229,7 +231,7 @@ async def send_signal(callback: CallbackQuery, state: FSMContext):
         reply_markup=kb_signal_only()
     )
 
-# ================= WEB (Sliplane) =================
+# ================= WEB =================
 async def run_web():
     app = web.Application()
     app.router.add_get("/", lambda request: web.Response(text="OK"))
