@@ -82,7 +82,6 @@ cryptomonedas = [
 all_pairs = otc_pairs + real_pairs + cryptomonedas
 
 timeframes = ["10 minutos"] * 5 + ["20 minutos"] * 3 + ["30 minutos"] * 2 + ["50 minutos"]
-budget_options = ["20$", "30$", "40$"]
 directions = ["📈 Arriba", "📉 Abajo"]
 
 user_cooldowns = {}
@@ -193,7 +192,6 @@ async def send_signal(callback: CallbackQuery, state: FSMContext):
     text = (
         f"Par: *{pair}*\n"
         f"Tiempo: *{random.choice(timeframes)}*\n"
-        f"Presupuesto: *{random.choice(budget_options)}*\n"
         f"Dirección: *{random.choice(directions)}*"
     )
 
