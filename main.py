@@ -121,6 +121,70 @@ async def start(message: Message, state: FSMContext):
     await message.answer("🔐 Ingresa el *código de acceso*:")
     await state.set_state(Form.waiting_for_code)
 
+@dp.message()
+async def block_unathorized_messages(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+
+    # если пользователь уже авторизован — пропускаем
+    if user_id in authorized_users:
+        return
+
+    current_state = await state.get_state()
+
+    # если ждём код — проверяем его
+    if current_state == Form.waiting_for_code.state:
+        now = datetime.now()
+
+        ban_until = login_bans.get(user_id)
+        if ban_until and ban_until > now:
+            remaining = int((ban_until - now).total_seconds())
+            await message.answer(
+                f"⛔ *Acceso bloqueado*\n\n"
+                f"Intenta nuevamente en {remaining//60}m {remaining%60}s\n\n"
+                f"Soporte 👉 @carlos_gananciasbot"
+            )
+            return
+
+        if message.text.strip() == ACCESS_CODE:
+            login_attempts.pop(user_id, None)
+            login_bans.pop(user_id, None)
+            authorized_users.add(user_id)
+
+            await message.answer(
+                "✅ *Acceso concedido*\n\nElige el tipo de activo:",
+                reply_markup=kb_types()
+            )
+            await state.set_state(Form.waiting_for_type)
+            return
+
+        # ❌ неверный код — ВСЕГДА отправляется
+        attempts = login_attempts.get(user_id, 0) + 1
+        login_attempts[user_id] = attempts
+
+        await message.answer(
+            "❌ *Código incorrecto*\n\n"
+            f"Intento *{attempts}* de *{MAX_ATTEMPTS}*\n\n"
+            "Soporte 👉 @carlos_gananciasbot"
+        )
+
+        if attempts >= MAX_ATTEMPTS:
+            login_bans[user_id] = now + BAN_TIME
+            login_attempts.pop(user_id, None)
+
+            await message.answer(
+                "⛔ *Has ingresado el código incorrecto 3 veces*\n\n"
+                "Las próximas tentativas estarán disponibles en *5 minutos*.\n\n"
+                "Soporte 👉 @carlos_gananciasbot"
+            )
+
+        await state.set_state(Form.waiting_for_code)
+        return
+
+    # если не авторизован и не ждём код — принудительно возвращаем
+    await message.answer("🔐 Ingresa el *código de acceso*:")
+    await state.set_state(Form.waiting_for_code)
+
+
 @dp.callback_query(F.data == "back_to_types")
 async def back(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
