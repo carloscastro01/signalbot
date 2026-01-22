@@ -16,13 +16,23 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
 import logging
+import os
+from aiohttp import web
 
 # ================= CONFIG =================
 TOKEN = "8535869380:AAHCUGD-I0rXeMbj7VUr22kcuN2c6xSMQAA"
 DB_FILE = "users.db"
 
+ACCESS_CODE = "2837"
+MAX_ATTEMPTS = 3
+BAN_TIME = timedelta(minutes=5)
+
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher(storage=MemoryStorage())
+
+# ================= ANTI-BRUTEFORCE =================
+login_attempts = {}  # user_id -> attempts
+login_bans = {}      # user_id -> datetime
 
 # ================= DB =================
 def init_db():
@@ -50,14 +60,9 @@ def get_pair(user_id: int):
         row = cur.fetchone()
         return row[0] if row else None
 
-def get_all_users():
-    with sqlite3.connect(DB_FILE) as conn:
-        cur = conn.execute("SELECT user_id FROM users")
-        return [r[0] for r in cur.fetchall()]
-
 # ================= FSM =================
 class Form(StatesGroup):
-    waiting_for_id = State()
+    waiting_for_code = State()
     waiting_for_type = State()
     waiting_for_pair = State()
     ready_for_signals = State()
@@ -79,8 +84,6 @@ cryptomonedas = [
     "TRON OTC", "Cardano OTC"
 ]
 
-all_pairs = otc_pairs + real_pairs + cryptomonedas
-
 timeframes = ["10 minutos"] * 5 + ["20 minutos"] * 3 + ["30 minutos"] * 2 + ["50 minutos"]
 directions = ["📈 Arriba", "📉 Abajo"]
 
@@ -95,17 +98,8 @@ def kb_types():
     ])
 
 def kb_pairs(pairs):
-    keyboard = []
-
-    for p in pairs:
-        keyboard.append(
-            [InlineKeyboardButton(text=p, callback_data=f"pair:{p}")]
-        )
-
-    keyboard.append(
-        [InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")]
-    )
-
+    keyboard = [[InlineKeyboardButton(text=p, callback_data=f"pair:{p}")] for p in pairs]
+    keyboard.append([InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def kb_signal_only():
@@ -122,13 +116,52 @@ def kb_after_pair():
 # ================= HANDLERS =================
 @dp.message(F.text == "/start")
 async def start(message: Message, state: FSMContext):
-    await message.answer("👋 ¡Hola! Envíame tu ID de cuenta.")
-    await state.set_state(Form.waiting_for_id)
+    await message.answer("🔐 Ingresa el *código de acceso*:")
+    await state.set_state(Form.waiting_for_code)
 
-@dp.message(Form.waiting_for_id)
-async def get_id(message: Message, state: FSMContext):
-    await message.answer("✅ ID recibido. Elige el tipo de activo:", reply_markup=kb_types())
-    await state.set_state(Form.waiting_for_type)
+@dp.message(Form.waiting_for_code)
+async def check_code(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    now = datetime.now()
+
+    ban_until = login_bans.get(user_id)
+    if ban_until and ban_until > now:
+        remaining = int((ban_until - now).total_seconds())
+        await message.answer(
+            f"⛔ *Acceso bloqueado*\n\n"
+            f"Intenta de nuevo en {remaining//60}m {remaining%60}s\n\n"
+            f"Soporte 👉 @carlos_gananciasbot"
+        )
+        return
+
+    if ban_until and ban_until <= now:
+        login_bans.pop(user_id, None)
+        login_attempts.pop(user_id, None)
+
+    if message.text.strip() == ACCESS_CODE:
+        login_attempts.pop(user_id, None)
+        await message.answer("✅ *Acceso concedido*\n\nElige el tipo de activo:", reply_markup=kb_types())
+        await state.set_state(Form.waiting_for_type)
+        return
+
+    attempts = login_attempts.get(user_id, 0) + 1
+    login_attempts[user_id] = attempts
+    remaining_attempts = MAX_ATTEMPTS - attempts
+
+    if remaining_attempts > 0:
+        await message.answer(
+            f"❌ *Código incorrecto*\n\n"
+            f"Intentos restantes: *{remaining_attempts}*\n\n"
+            f"Soporte 👉 @carlos_gananciasbot"
+        )
+    else:
+        login_bans[user_id] = now + BAN_TIME
+        login_attempts.pop(user_id, None)
+        await message.answer(
+            "⛔ *Demasiados intentos*\n\n"
+            "Acceso bloqueado por *5 minutos*\n\n"
+            "Soporte 👉 @carlos_gananciasbot"
+        )
 
 @dp.callback_query(F.data == "type_otc")
 async def type_otc(callback: CallbackQuery, state: FSMContext):
@@ -189,41 +222,29 @@ async def send_signal(callback: CallbackQuery, state: FSMContext):
     await asyncio.sleep(2)
     await loading.delete()
 
-    text = (
+    await callback.message.answer(
         f"Par: *{pair}*\n"
         f"Tiempo: *{random.choice(timeframes)}*\n"
-        f"Dirección: *{random.choice(directions)}*"
+        f"Dirección: *{random.choice(directions)}*",
+        reply_markup=kb_signal_only()
     )
 
-    await callback.message.answer(text, reply_markup=kb_signal_only())
-
-# ================= MAIN =================
-import os
-from aiohttp import web
-
-async def healthcheck():
-    return web.Response(text="OK")
-
+# ================= WEB (Sliplane) =================
 async def run_web():
     app = web.Application()
     app.router.add_get("/", lambda request: web.Response(text="OK"))
-
     runner = web.AppRunner(app)
     await runner.setup()
-
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
+# ================= MAIN =================
 async def main():
     logging.basicConfig(level=logging.INFO)
     init_db()
-
-    # 👇 запускаем фейковый сервер
     await run_web()
-
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
