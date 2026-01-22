@@ -30,9 +30,12 @@ BAN_TIME = timedelta(minutes=5)
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher(storage=MemoryStorage())
 
-# ================= ANTI-BRUTEFORCE =================
-login_attempts = {}  # user_id -> attempts
-login_bans = {}      # user_id -> datetime
+# ================= ANTI-BRUTEFORCE / STATE =================
+login_attempts = {}   # user_id -> attempts
+login_bans = {}       # user_id -> datetime
+
+authorized_users = set()
+user_cooldowns = {}
 
 # ================= DB =================
 def init_db():
@@ -87,8 +90,6 @@ cryptomonedas = [
 timeframes = ["10 minutos"] * 5 + ["20 minutos"] * 3 + ["30 minutos"] * 2 + ["50 minutos"]
 directions = ["📈 Arriba", "📉 Abajo"]
 
-user_cooldowns = {}
-
 # ================= KEYBOARDS =================
 def kb_types():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -116,15 +117,34 @@ def kb_after_pair():
 # ================= HANDLERS =================
 @dp.message(F.text == "/start")
 async def start(message: Message, state: FSMContext):
+    authorized_users.discard(message.from_user.id)
     await message.answer("🔐 Ingresa el *código de acceso*:")
     await state.set_state(Form.waiting_for_code)
+
+@dp.callback_query(F.data == "back_to_types")
+async def back(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+
+    if user_id not in authorized_users:
+        await callback.answer("Acceso requerido", show_alert=True)
+        await callback.message.answer("🔐 Ingresa el *código de acceso*:")
+        await state.set_state(Form.waiting_for_code)
+        return
+
+    await callback.answer()
+    await callback.message.edit_text(
+        "Elige el tipo de activo:",
+        reply_markup=kb_types()
+    )
+    await state.set_state(Form.waiting_for_type)
+
 
 @dp.message(Form.waiting_for_code)
 async def check_code(message: Message, state: FSMContext):
     user_id = message.from_user.id
     now = datetime.now()
 
-    # ⛔ если уже в бане
+    # ⛔ Бан
     ban_until = login_bans.get(user_id)
     if ban_until and ban_until > now:
         remaining = int((ban_until - now).total_seconds())
@@ -135,14 +155,13 @@ async def check_code(message: Message, state: FSMContext):
         )
         return
 
-    # если бан истёк — сбрасываем
-    if ban_until and ban_until <= now:
-        login_bans.pop(user_id, None)
-        login_attempts.pop(user_id, None)
-
-    # ✅ правильный код
+    # ✅ Правильный код
     if message.text.strip() == ACCESS_CODE:
         login_attempts.pop(user_id, None)
+        login_bans.pop(user_id, None)
+
+        authorized_users.add(user_id)
+
         await message.answer(
             "✅ *Acceso concedido*\n\nElige el tipo de activo:",
             reply_markup=kb_types()
@@ -150,17 +169,17 @@ async def check_code(message: Message, state: FSMContext):
         await state.set_state(Form.waiting_for_type)
         return
 
-    # ❌ неправильный код
+    # ❌ Неверный код — СРАЗУ ответ
     attempts = login_attempts.get(user_id, 0) + 1
     login_attempts[user_id] = attempts
 
-    # сообщение после КАЖДОЙ ошибки
     await message.answer(
         "❌ *Código incorrecto*\n\n"
+        f"Intento *{attempts}* de *{MAX_ATTEMPTS}*\n\n"
         "Soporte 👉 @carlos_gananciasbot"
     )
 
-    # если это 3-я попытка — бан
+    # ⛔ Третья попытка → бан
     if attempts >= MAX_ATTEMPTS:
         login_bans[user_id] = now + BAN_TIME
         login_attempts.pop(user_id, None)
@@ -170,6 +189,9 @@ async def check_code(message: Message, state: FSMContext):
             "Las próximas tentativas estarán disponibles en *5 minutos*.\n\n"
             "Soporte 👉 @carlos_gananciasbot"
         )
+
+    await state.set_state(Form.waiting_for_code)
+
 
 @dp.callback_query(F.data == "type_otc")
 async def type_otc(callback: CallbackQuery, state: FSMContext):
