@@ -4,17 +4,13 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import (
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    Message,
-    CallbackQuery
-)
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
+
 import logging
 import os
 from aiohttp import web
@@ -27,28 +23,27 @@ ACCESS_CODE = "2837"
 MAX_ATTEMPTS = 3
 BAN_TIME = timedelta(minutes=5)
 
+SIGNAL_COOLDOWN = timedelta(minutes=5)
+RISK_RANGE = (30, 40)
+
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher(storage=MemoryStorage())
 
-# ================= ANTI-BRUTEFORCE / STATE =================
-login_attempts = {}   # user_id -> attempts
-login_bans = {}       # user_id -> datetime
-
+# ================= STATE / SECURITY =================
 authorized_users = set()
+login_attempts = {}
+login_bans = {}
 user_cooldowns = {}
 
 # ================= DB =================
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            pair TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                pair TEXT
+            )
+        """)
 
 def save_pair(user_id: int, pair: str):
     with sqlite3.connect(DB_FILE) as conn:
@@ -80,15 +75,22 @@ real_pairs = [
     "EUR/USD", "AUD/USD", "Gold", "AUD/JPY", "CAD/JPY"
 ]
 
-cryptomonedas = [
+crypto_pairs = [
     "Bitcoin OTC", "Ethereum OTC", "BNB OTC", "Litecoin OTC",
-    "Dogecoin OTC", "Polygon OTC", "Toncoin OTC",
-    "Polkadot OTC", "Avalanche OTC", "Chainlink OTC",
-    "TRON OTC", "Cardano OTC"
+    "Dogecoin OTC", "Toncoin OTC", "Avalanche OTC"
 ]
 
 timeframes = ["10 minutos"] * 5 + ["20 minutos"] * 3 + ["30 minutos"] * 2 + ["50 minutos"]
 directions = ["📈 Arriba", "📉 Abajo"]
+
+# ================= HELPERS =================
+def risk_indicator(risk: int) -> str:
+    if 30 <= risk <= 33:
+        return "🟢 Bajo"
+    elif 34 <= risk <= 37:
+        return "🟡 Medio"
+    else:
+        return "🔴 Alto"
 
 # ================= KEYBOARDS =================
 def kb_types():
@@ -103,15 +105,9 @@ def kb_pairs(pairs):
     keyboard.append([InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def kb_signal_only():
+def kb_signal():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📩 OBTENER SEÑAL", callback_data="get_signal")]
-    ])
-
-def kb_after_pair():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📩 OBTENER SEÑAL", callback_data="get_signal")],
-        [InlineKeyboardButton(text="🔙 Volver", callback_data="back_to_types")]
     ])
 
 # ================= HANDLERS =================
@@ -121,141 +117,40 @@ async def start(message: Message, state: FSMContext):
     await message.answer("🔐 Ingresa el *código de acceso*:")
     await state.set_state(Form.waiting_for_code)
 
-@dp.message()
-async def block_unathorized_messages(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-
-    # если пользователь уже авторизован — пропускаем
-    if user_id in authorized_users:
-        return
-
-    current_state = await state.get_state()
-
-    # если ждём код — проверяем его
-    if current_state == Form.waiting_for_code.state:
-        now = datetime.now()
-
-        ban_until = login_bans.get(user_id)
-        if ban_until and ban_until > now:
-            remaining = int((ban_until - now).total_seconds())
-            await message.answer(
-                f"⛔ *Acceso bloqueado*\n\n"
-                f"Intenta nuevamente en {remaining//60}m {remaining%60}s\n\n"
-                f"Soporte 👉 @carlos_gananciasbot"
-            )
-            return
-
-        if message.text.strip() == ACCESS_CODE:
-            login_attempts.pop(user_id, None)
-            login_bans.pop(user_id, None)
-            authorized_users.add(user_id)
-
-            await message.answer(
-                "✅ *Acceso concedido*\n\nElige el tipo de activo:",
-                reply_markup=kb_types()
-            )
-            await state.set_state(Form.waiting_for_type)
-            return
-
-        # ❌ неверный код — ВСЕГДА отправляется
-        attempts = login_attempts.get(user_id, 0) + 1
-        login_attempts[user_id] = attempts
-
-        await message.answer(
-            "❌ *Código incorrecto*\n\n"
-            f"Intento *{attempts}* de *{MAX_ATTEMPTS}*\n\n"
-            "Soporte 👉 @carlos_gananciasbot"
-        )
-
-        if attempts >= MAX_ATTEMPTS:
-            login_bans[user_id] = now + BAN_TIME
-            login_attempts.pop(user_id, None)
-
-            await message.answer(
-                "⛔ *Has ingresado el código incorrecto 3 veces*\n\n"
-                "Las próximas tentativas estarán disponibles en *5 minutos*.\n\n"
-                "Soporte 👉 @carlos_gananciasbot"
-            )
-
-        await state.set_state(Form.waiting_for_code)
-        return
-
-    # если не авторизован и не ждём код — принудительно возвращаем
-    await message.answer("🔐 Ingresa el *código de acceso*:")
-    await state.set_state(Form.waiting_for_code)
-
-
-@dp.callback_query(F.data == "back_to_types")
-async def back(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-
-    if user_id not in authorized_users:
-        await callback.answer("Acceso requerido", show_alert=True)
-        await callback.message.answer("🔐 Ingresa el *código de acceso*:")
-        await state.set_state(Form.waiting_for_code)
-        return
-
-    await callback.answer()
-    await callback.message.edit_text(
-        "Elige el tipo de activo:",
-        reply_markup=kb_types()
-    )
-    await state.set_state(Form.waiting_for_type)
-
-
 @dp.message(Form.waiting_for_code)
 async def check_code(message: Message, state: FSMContext):
     user_id = message.from_user.id
     now = datetime.now()
 
-    # ⛔ Бан
-    ban_until = login_bans.get(user_id)
-    if ban_until and ban_until > now:
-        remaining = int((ban_until - now).total_seconds())
-        await message.answer(
-            f"⛔ *Acceso bloqueado*\n\n"
-            f"Intenta nuevamente en {remaining//60}m {remaining%60}s\n\n"
-            f"Soporte 👉 @carlos_gananciasbot"
-        )
+    if login_bans.get(user_id, now) > now:
+        remaining = int((login_bans[user_id] - now).total_seconds())
+        await message.answer(f"⛔ Acceso bloqueado\nIntenta en {remaining//60}m {remaining%60}s")
         return
 
-    # ✅ Правильный код
     if message.text.strip() == ACCESS_CODE:
+        authorized_users.add(user_id)
         login_attempts.pop(user_id, None)
         login_bans.pop(user_id, None)
 
-        authorized_users.add(user_id)
-
-        await message.answer(
-            "✅ *Acceso concedido*\n\nElige el tipo de activo:",
-            reply_markup=kb_types()
-        )
+        await message.answer("✅ Acceso concedido\n\nElige el tipo de activo:", reply_markup=kb_types())
         await state.set_state(Form.waiting_for_type)
         return
 
-    # ❌ Неверный код — СРАЗУ ответ
     attempts = login_attempts.get(user_id, 0) + 1
     login_attempts[user_id] = attempts
 
-    await message.answer(
-        "❌ *Código incorrecto*\n\n"
-        f"Intento *{attempts}* de *{MAX_ATTEMPTS}*\n\n"
-        "Soporte 👉 @carlos_gananciasbot"
-    )
+    await message.answer(f"❌ Código incorrecto\nIntento {attempts}/{MAX_ATTEMPTS}")
 
-    # ⛔ Третья попытка → бан
     if attempts >= MAX_ATTEMPTS:
         login_bans[user_id] = now + BAN_TIME
         login_attempts.pop(user_id, None)
+        await message.answer("⛔ Bloqueado por 5 minutos")
 
-        await message.answer(
-            "⛔ *Has ingresado el código incorrecto 3 veces*\n\n"
-            "Las próximas tentativas estarán disponibles en *5 minutos*.\n\n"
-            "Soporte 👉 @carlos_gananciasbot"
-        )
-
-    await state.set_state(Form.waiting_for_code)
-
+@dp.callback_query(F.data == "back_to_types")
+async def back(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.edit_text("Elige el tipo de activo:", reply_markup=kb_types())
+    await state.set_state(Form.waiting_for_type)
 
 @dp.callback_query(F.data == "type_otc")
 async def type_otc(callback: CallbackQuery, state: FSMContext):
@@ -272,55 +167,64 @@ async def type_real(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "type_crypto")
 async def type_crypto(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.answer("Selecciona una criptomoneda:", reply_markup=kb_pairs(cryptomonedas))
+    await callback.message.answer("Selecciona una criptomoneda:", reply_markup=kb_pairs(crypto_pairs))
     await state.set_state(Form.waiting_for_pair)
 
 @dp.callback_query(F.data.startswith("pair:"))
 async def select_pair(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
     pair = callback.data.split(":", 1)[1]
     save_pair(callback.from_user.id, pair)
 
+    await callback.answer()
     await callback.message.edit_text(
-        f"✅ Par seleccionado: *{pair}*\nPulsa para recibir la señal 👇",
-        reply_markup=kb_after_pair()
+        f"✅ Par seleccionado: *{pair}*\n\nPulsa para recibir señal 👇",
+        reply_markup=kb_signal()
     )
     await state.set_state(Form.ready_for_signals)
 
 @dp.callback_query(F.data == "get_signal")
-async def send_signal(callback: CallbackQuery, state: FSMContext):
+async def send_signal(callback: CallbackQuery):
     user_id = callback.from_user.id
     now = datetime.now()
-    cooldown = user_cooldowns.get(user_id)
 
-    if cooldown and cooldown > now:
-        remaining = int((cooldown - now).total_seconds())
-        await callback.answer(
-            f"⏳ Próxima señal en {remaining//60}m {remaining%60}s",
-            show_alert=True
-        )
+    if user_cooldowns.get(user_id, now) > now:
+        remaining = int((user_cooldowns[user_id] - now).total_seconds())
+        await callback.answer(f"⏳ Próxima señal en {remaining//60}m {remaining%60}s", show_alert=True)
         return
 
-    await callback.answer()
-    user_cooldowns[user_id] = now + timedelta(minutes=5)
-
+    user_cooldowns[user_id] = now + SIGNAL_COOLDOWN
     pair = get_pair(user_id)
 
-    loading = await callback.message.answer("⏳ Preparando señal...")
-    await asyncio.sleep(2)
-    await loading.delete()
+    msg = await callback.message.answer("🔄 *Cargando datos desde PocketOption...*")
+    await asyncio.sleep(1.5)
+
+    await msg.edit_text("📊 *Analizando el mercado...*")
+    await asyncio.sleep(1.5)
+
+    await msg.edit_text("🧮 *Calculando probabilidades...*")
+    await asyncio.sleep(1.5)
+
+    risk = random.randint(*RISK_RANGE)
+    success = 100 - risk
+    label = risk_indicator(risk)
+
+    await msg.delete()
 
     await callback.message.answer(
+        f"📌 *SEÑAL GENERADA*\n\n"
         f"Par: *{pair}*\n"
         f"Tiempo: *{random.choice(timeframes)}*\n"
-        f"Dirección: *{random.choice(directions)}*",
-        reply_markup=kb_signal_only()
+        f"Dirección: *{random.choice(directions)}*\n\n"
+        f"⚠️ Riesgo: `{risk}%` {label}\n"
+        f"✅ Probabilidad de éxito: `{success}%`\n\n"
+        f"_Gestiona tu capital. El mercado es dinámico._",
+        reply_markup=kb_signal()
     )
 
 # ================= WEB =================
 async def run_web():
     app = web.Application()
-    app.router.add_get("/", lambda request: web.Response(text="OK"))
+    app.router.add_get("/", lambda _: web.Response(text="OK"))
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))
