@@ -23,8 +23,6 @@ ACCESS_CODE = "2837"
 MAX_ATTEMPTS = 3
 BAN_TIME = timedelta(minutes=5)
 
-ADMINS = {8251178801}
-
 SIGNAL_COOLDOWN = timedelta(minutes=5)
 RISK_RANGE = (30, 40)
 
@@ -222,32 +220,6 @@ async def send_signal(callback: CallbackQuery):
         f"_Gestiona tu capital. El mercado es dinámico._",
         reply_markup=kb_signal()
     )
-
-@dp.message(F.text.startswith("/signal"))
-async def manual_signal(message: Message):
-    if message.from_user.id not in ADMINS:
-        return
-
-    try:
-        # формат:
-        # /signal EUR/USD 10 📈
-        _, pair, time, direction = message.text.split(maxsplit=3)
-
-        for user_id in authorized_users:
-            await bot.send_message(
-                user_id,
-                f"📡 *Señal manual*\n\n"
-                f"Par: *{pair}*\n"
-                f"Tiempo: *{time} minutos*\n"
-                f"Dirección: *{direction}*"
-            )
-
-        await message.answer("✅ Señal enviada")
-    except Exception as e:
-        await message.answer(
-            "❌ Формат:\n"
-            "`/signal EUR/USD 10 📈`"
-        )
 
 # ================= WEB =================
 async def run_web():
