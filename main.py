@@ -4,13 +4,18 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    Message,
+    CallbackQuery,
+    FSInputFile
+)
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
-from aiogram.types import FSInputFile
 
 import logging
 import os
@@ -95,11 +100,6 @@ def risk_indicator(risk: int) -> str:
 
 # ================= KEYBOARDS =================
 def kb_types():
-    await callback.message.answer_photo(
-    photo=FSInputFile("astryx15.png"),
-    caption="📂 *Seleccionar categoría de activos*"
-    )
-
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🕹 Pares OTC", callback_data="type_otc")],
         [InlineKeyboardButton(text="📈 Pares reales", callback_data="type_real")],
@@ -122,11 +122,10 @@ async def start(message: Message, state: FSMContext):
     authorized_users.discard(message.from_user.id)
 
     await message.answer_photo(
-        photo=FSInputFile("astryx.png"),
+        photo=FSInputFile("images/astryx.png"),
         caption="🤖 *ASTRYX*\nIA Trading Bot\n\n🔐 Ingresa el *código de acceso*:"
     )
     await state.set_state(Form.waiting_for_code)
-
 
 @dp.message(Form.waiting_for_code)
 async def check_code(message: Message, state: FSMContext):
@@ -144,10 +143,10 @@ async def check_code(message: Message, state: FSMContext):
         login_bans.pop(user_id, None)
 
         await message.answer_photo(
-            photo=FSInputFile("astryx3.png"),
-            caption="✅ *ID confirmado*\n\nElige el tipo de activo:")
+            photo=FSInputFile("images/astryx3.png"),
+            caption="✅ *ID confirmado*\n\nElige el tipo de activo:"
+        )
         await message.answer(reply_markup=kb_types())
-
         await state.set_state(Form.waiting_for_type)
         return
 
@@ -164,33 +163,40 @@ async def check_code(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "back_to_types")
 async def back(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.edit_text("Elige el tipo de activo:", reply_markup=kb_types())
+    await callback.message.answer_photo(
+        photo=FSInputFile("images/astryx15.png"),
+        caption="📂 *Seleccionar categoría de activos*",
+        reply_markup=kb_types()
+    )
     await state.set_state(Form.waiting_for_type)
 
 @dp.callback_query(F.data == "type_otc")
 async def type_otc(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.answer_photo(
-    photo=FSInputFile("astryx8.png"),
-    caption="📊 *Seleccionar activo de trading*")
+        photo=FSInputFile("images/astryx8.png"),
+        caption="📊 *Seleccionar activo de trading*"
+    )
     await callback.message.answer("Selecciona un par OTC:", reply_markup=kb_pairs(otc_pairs))
     await state.set_state(Form.waiting_for_pair)
 
 @dp.callback_query(F.data == "type_real")
 async def type_real(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer_photo(
-    photo=FSInputFile("astryx8.png"),
-    caption="📊 *Seleccionar activo de trading*")
     await callback.answer()
+    await callback.message.answer_photo(
+        photo=FSInputFile("images/astryx8.png"),
+        caption="📊 *Seleccionar activo de trading*"
+    )
     await callback.message.answer("Selecciona un par real:", reply_markup=kb_pairs(real_pairs))
     await state.set_state(Form.waiting_for_pair)
 
 @dp.callback_query(F.data == "type_crypto")
 async def type_crypto(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer_photo(
-    photo=FSInputFile("astryx8.png"),
-    caption="📊 *Seleccionar activo de trading*")
     await callback.answer()
+    await callback.message.answer_photo(
+        photo=FSInputFile("images/astryx8.png"),
+        caption="📊 *Seleccionar activo de trading*"
+    )
     await callback.message.answer("Selecciona una criptomoneda:", reply_markup=kb_pairs(crypto_pairs))
     await state.set_state(Form.waiting_for_pair)
 
@@ -201,11 +207,11 @@ async def select_pair(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     await callback.message.answer_photo(
-    photo=FSInputFile("astryx2.png"),
-    caption=(
-        f"🚀 *Empieza a hacer trading!*\n\n"
-        f"Par seleccionado: *{pair}*\n\n"
-        f"Pulsa para recibir señal 👇"
+        photo=FSInputFile("images/astryx2.png"),
+        caption=(
+            f"🚀 *Empieza a hacer trading!*\n\n"
+            f"Par seleccionado: *{pair}*\n\n"
+            f"Pulsa para recibir señal 👇"
         ),
         reply_markup=kb_signal()
     )
@@ -226,10 +232,8 @@ async def send_signal(callback: CallbackQuery):
 
     msg = await callback.message.answer("🔄 *Cargando datos desde PocketOption...*")
     await asyncio.sleep(1.5)
-
     await msg.edit_text("📊 *Analizando el mercado...*")
     await asyncio.sleep(1.5)
-
     await msg.edit_text("🧮 *Calculando probabilidades...*")
     await asyncio.sleep(1.5)
 
