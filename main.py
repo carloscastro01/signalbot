@@ -36,6 +36,13 @@ RISK_RANGE = (30, 40)
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher(storage=MemoryStorage())
 
+# ================= PATH HELPERS =================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def img(filename: str) -> FSInputFile:
+    # файлы должны лежать в папке ./images рядом с main.py
+    return FSInputFile(os.path.join(BASE_DIR, "images", filename))
+
 # ================= STATE / SECURITY =================
 authorized_users = set()
 login_attempts = {}
@@ -122,7 +129,6 @@ def kb_signal():
 async def start(message: Message, state: FSMContext):
     user_id = message.from_user.id
 
-    # сбрасываем старое состояние и доступ
     authorized_users.discard(user_id)
     login_attempts.pop(user_id, None)
     login_bans.pop(user_id, None)
@@ -177,12 +183,11 @@ async def check_code(message: Message, state: FSMContext):
         login_attempts.pop(user_id, None)
         await message.answer("⛔ Bloqueado por 5 minutos")
 
-
 @dp.callback_query(F.data == "back_to_types")
 async def back(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.answer_photo(
-        photo=FSInputFile("images/astryx15.png"),
+        photo=img("astryx15.png"),
         caption="📂 *Seleccionar categoría de activos*",
         reply_markup=kb_types()
     )
@@ -192,7 +197,7 @@ async def back(callback: CallbackQuery, state: FSMContext):
 async def type_otc(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.answer_photo(
-        photo=FSInputFile("images/astryx8.png"),
+        photo=img("astryx8.png"),
         caption="📊 *Seleccionar activo de trading*"
     )
     await callback.message.answer("Selecciona un par OTC:", reply_markup=kb_pairs(otc_pairs))
@@ -202,7 +207,7 @@ async def type_otc(callback: CallbackQuery, state: FSMContext):
 async def type_real(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.answer_photo(
-        photo=FSInputFile("images/astryx8.png"),
+        photo=img("astryx8.png"),
         caption="📊 *Seleccionar activo de trading*"
     )
     await callback.message.answer("Selecciona un par real:", reply_markup=kb_pairs(real_pairs))
@@ -212,7 +217,7 @@ async def type_real(callback: CallbackQuery, state: FSMContext):
 async def type_crypto(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.answer_photo(
-        photo=FSInputFile("images/astryx8.png"),
+        photo=img("astryx8.png"),
         caption="📊 *Seleccionar activo de trading*"
     )
     await callback.message.answer("Selecciona una criptomoneda:", reply_markup=kb_pairs(crypto_pairs))
@@ -225,7 +230,7 @@ async def select_pair(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     await callback.message.answer_photo(
-        photo=FSInputFile("images/astryx2.png"),
+        photo=img("astryx2.png"),
         caption=(
             f"🚀 *Empieza a hacer trading!*\n\n"
             f"Par seleccionado: *{pair}*\n\n"
@@ -287,12 +292,10 @@ async def main():
     logging.basicConfig(level=logging.INFO)
     init_db()
 
-    # ❗ КРИТИЧЕСКИ ВАЖНО
     await bot.delete_webhook(drop_pending_updates=True)
 
     await run_web()
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
