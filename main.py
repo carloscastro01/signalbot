@@ -16,6 +16,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
+from aiogram.filters import CommandStart
 
 import logging
 import os
@@ -117,27 +118,42 @@ def kb_signal():
     ])
 
 # ================= HANDLERS =================
-@dp.message(F.text == "/start")
+@dp.message(CommandStart())
 async def start(message: Message, state: FSMContext):
-    authorized_users.discard(message.from_user.id)
+    user_id = message.from_user.id
+
+    # сбрасываем старое состояние и доступ
+    authorized_users.discard(user_id)
+    login_attempts.pop(user_id, None)
+    login_bans.pop(user_id, None)
+
+    await state.clear()
 
     await message.answer_photo(
-        photo=FSInputFile("images/astryx.png"),
-        caption="🤖 *ASTRYX*\nIA Trading Bot\n\n🔐 Ingresa el *código de acceso*:"
+        photo=img("astryx.png"),
+        caption=(
+            "🤖 *ASTRYX*\n"
+            "IA Trading Bot\n\n"
+            "🔐 Ingresa el *código de acceso*:"
+        )
     )
+
     await state.set_state(Form.waiting_for_code)
 
-@dp.message(Form.waiting_for_code)
+@dp.message(Form.waiting_for_code, F.text)
 async def check_code(message: Message, state: FSMContext):
     user_id = message.from_user.id
     now = datetime.now()
+    text = message.text.strip()
 
     if login_bans.get(user_id, now) > now:
         remaining = int((login_bans[user_id] - now).total_seconds())
-        await message.answer(f"⛔ Acceso bloqueado\nIntenta en {remaining//60}m {remaining%60}s")
+        await message.answer(
+            f"⛔ Acceso bloqueado\nIntenta en {remaining//60}m {remaining%60}s"
+        )
         return
 
-    if message.text.strip() == ACCESS_CODE:
+    if text == ACCESS_CODE:
         authorized_users.add(user_id)
         login_attempts.pop(user_id, None)
         login_bans.pop(user_id, None)
@@ -160,6 +176,7 @@ async def check_code(message: Message, state: FSMContext):
         login_bans[user_id] = now + BAN_TIME
         login_attempts.pop(user_id, None)
         await message.answer("⛔ Bloqueado por 5 minutos")
+
 
 @dp.callback_query(F.data == "back_to_types")
 async def back(callback: CallbackQuery, state: FSMContext):
