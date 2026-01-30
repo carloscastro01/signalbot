@@ -136,7 +136,7 @@ async def start(message: Message, state: FSMContext):
     await state.clear()
 
     await message.answer_photo(
-        photo=img("astryx.png"),
+        photo=img("astryx2.png"),
         caption=(
             "🤖 *ASTRYX*\n"
             "IA Trading Bot\n\n"
@@ -230,7 +230,7 @@ async def select_pair(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     await callback.message.answer_photo(
-        photo=img("astryx2.png"),
+        photo=img("astryx.png"),
         caption=(
             f"🚀 *Empieza a hacer trading!*\n\n"
             f"Par seleccionado: *{pair}*\n\n"
