@@ -268,8 +268,13 @@ async def run_web():
 async def main():
     logging.basicConfig(level=logging.INFO)
     init_db()
+
+    # ❗ КРИТИЧЕСКИ ВАЖНО
+    await bot.delete_webhook(drop_pending_updates=True)
+
     await run_web()
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
