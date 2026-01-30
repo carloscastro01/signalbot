@@ -143,10 +143,11 @@ async def check_code(message: Message, state: FSMContext):
         login_bans.pop(user_id, None)
 
         await message.answer_photo(
-            photo=FSInputFile("images/astryx3.png"),
-            caption="✅ *ID confirmado*\n\nElige el tipo de activo:"
+            photo=img("astryx3.png"),
+            caption="✅ *ID confirmado*\n\nElige el tipo de activo:",
+            reply_markup=kb_types()
         )
-        await message.answer(reply_markup=kb_types())
+
         await state.set_state(Form.waiting_for_type)
         return
 
